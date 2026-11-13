@@ -42,7 +42,7 @@ export default function App() {
     {
       id: 'welcome',
       sender: 'assistant',
-      text: 'Namaste! Main aapka AI lecture companion hoon. Lecture ke baare mein koi bhi doubt pucho, notes dekho, ya quiz attempt karo!',
+      text: 'Namaste! Main aapka AI StudyBuddy hoon. Lecture ke baare mein koi bhi doubt pucho, notes dekho, ya quiz attempt karo!',
       citations: [],
     },
   ])
@@ -177,7 +177,7 @@ export default function App() {
         <div className="brand-section">
           <div className="brand-title">
             <Sparkles size={22} color="#6366f1" />
-            <span>LectureLens</span>
+            <span>StudyBuddy</span>
           </div>
           <span className="brand-badge">Grounded RAG</span>
         </div>
