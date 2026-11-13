@@ -1,0 +1,80 @@
+# ==========================================
+# StudyBuddy - Vercel Deployment Ignore
+# ==========================================
+# Files & folders that should NOT be uploaded to Vercel during deployment
+
+# Python Virtual Environments
+backend/.venv/
+backend/venv/
+.venv/
+venv/
+ENV/
+env/
+
+# Python Bytecode & Cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+backend/**/__pycache__/
+
+# Node Modules (handled by Vercel's own build)
+node_modules/
+frontend/node_modules/
+
+# Local Development Build Outputs
+frontend/dist/
+dist/
+build/
+
+# Local Databases & Vector Stores
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+backend/data/
+backend/data/chroma/
+backend/chroma_db_test/
+data/
+
+# Environment Files (except .env.example)
+.env
+.env.*
+!.env.example
+backend/.env
+backend/.env.*
+!backend/.env.example
+
+# IDE & OS Files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+logs/
+
+# Git
+.git/
+.gitignore
+
+# Test & Coverage
+*.cover
+*.py,cover
+.hypothesis/
+.tox/
+
+# Misc
+*.tgz
+.cache/
+*.tsbuildinfo
+.vite/

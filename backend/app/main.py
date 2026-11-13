@@ -30,10 +30,15 @@ app = FastAPI(
 
 # Configure CORS (Cross-Origin Resource Sharing)
 # This allows our React frontend (running on port 5173) to communicate with this backend (on port 8000).
+# In production on Vercel, you should add your Vercel domain to this list.
 origins = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
 ]
+
+# Allow origins from environment variable for production
+if cors_origins := os.getenv("CORS_ORIGINS"):
+    origins.extend([o.strip() for o in cors_origins.split(",")])
 
 app.add_middleware(
     CORSMiddleware,
