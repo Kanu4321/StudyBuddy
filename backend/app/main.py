@@ -1,18 +1,31 @@
 import os
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
+from app.db import init_db
+from app.routers.auth import router as auth_router
 from app.routers.lecture import router as lecture_router
+from app.routers.dashboard import router as dashboard_router
 
-# Load environment variables from .env file (e.g. GEMINI_API_KEY)
+# Load environment variables from .env file (e.g. GEMINI_API_KEY, JWT_SECRET, DATABASE_URL)
 load_dotenv()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Initialize database tables
+    init_db()
+    yield
+
 
 # Initialize FastAPI application
 app = FastAPI(
     title="Video Lecture Assistant API",
     description="Backend API powering interactive, grounded lecture learning",
     version="0.1.0",
+    lifespan=lifespan,
 )
 
 # Configure CORS (Cross-Origin Resource Sharing)
@@ -27,11 +40,13 @@ app.add_middleware(
     allow_origins=origins,       # Origins allowed to make requests
     allow_credentials=True,     # Allow cookies and authorization headers
     allow_methods=["*"],        # Allow all HTTP methods (GET, POST, etc.)
-    allow_headers=["*"],        # Allow all headers
+    allow_headers=["*"],        # Allow all headers including Authorization
 )
 
 # Register routers
+app.include_router(auth_router)
 app.include_router(lecture_router)
+app.include_router(dashboard_router)
 
 
 @app.get("/")

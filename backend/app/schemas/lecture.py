@@ -16,7 +16,7 @@ class TranscriptRequest(BaseModel):
     url: str = Field(
         ...,
         description="YouTube video URL or 11-character video ID",
-        example="https://www.youtube.com/watch?v=aircAruvnKk",
+        example="https://youtu.be/HpsjPUwQHfw",
     )
 
 
@@ -42,7 +42,7 @@ class ChunkItem(BaseModel):
 
 class ChunkRequest(BaseModel):
     """Request to fetch and chunk a video's transcript."""
-    url: str = Field(..., example="https://www.youtube.com/watch?v=aircAruvnKk")
+    url: str = Field(..., example="https://youtu.be/HpsjPUwQHfw")
     target_words: int = Field(default=180, description="Target word count per chunk (~1 to 1.5 mins)")
     overlap_words: int = Field(default=35, description="Number of overlapping words between consecutive chunks")
 
@@ -59,7 +59,7 @@ class ChunkResponse(BaseModel):
 
 class ProcessVideoRequest(BaseModel):
     """Payload to trigger end-to-end ingestion and indexing of a video."""
-    url: str = Field(..., example="https://www.youtube.com/watch?v=aircAruvnKk")
+    url: str = Field(..., example="https://youtu.be/HpsjPUwQHfw")
     target_words: int = Field(default=180, description="Target word count per chunk")
     overlap_words: int = Field(default=35, description="Overlap words between chunks")
 

@@ -1,5 +1,6 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { BookOpen, Clock, Sparkles, RefreshCw } from 'lucide-react'
+import { apiFetch } from '../api'
 
 export default function NotesPanel({ videoId, language, onSeek }) {
   const [notes, setNotes] = useState(null)
@@ -11,9 +12,8 @@ export default function NotesPanel({ videoId, language, onSeek }) {
     setIsLoading(true)
     setError('')
     try {
-      const res = await fetch('/api/notes', {
+      const res = await apiFetch('/api/notes', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url_or_video_id: videoId, language }),
       })
       if (!res.ok) {

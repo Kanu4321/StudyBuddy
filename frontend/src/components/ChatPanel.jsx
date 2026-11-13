@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { Send, Clock, Sparkles, MessageSquare } from 'lucide-react'
 
 // Helper to convert MM:SS to seconds if citation metadata is missing

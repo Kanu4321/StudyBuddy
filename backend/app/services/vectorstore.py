@@ -200,6 +200,24 @@ def process_and_index_video(
     4. Embed & Store in ChromaDB
     """
     video_id = extract_video_id(url_or_id)
+    collection_name = get_collection_name(video_id)
+
+    # Check if already indexed in ChromaDB to avoid unnecessary YouTube requests
+    try:
+        collection = _chroma_client.get_collection(name=collection_name)
+        existing_count = collection.count()
+        if existing_count > 0:
+            return {
+                "status": "already_indexed",
+                "video_id": video_id,
+                "collection_name": collection_name,
+                "total_chunks": existing_count,
+                "raw_snippets_count": existing_count,
+                "message": f"Lecture '{video_id}' is already indexed with {existing_count} chunks.",
+            }
+    except Exception:
+        pass
+
     raw_snippets = fetch_transcript(video_id)
     chunks = chunk_transcript(
         raw_snippets,

@@ -1,5 +1,6 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { Brain, Clock, Sparkles, CheckCircle2, XCircle, RefreshCw } from 'lucide-react'
+import { apiFetch } from '../api'
 
 export default function QuizPanel({ videoId, language, onSeek }) {
   const [questions, setQuestions] = useState(null)
@@ -13,9 +14,8 @@ export default function QuizPanel({ videoId, language, onSeek }) {
     setError('')
     setSelectedAnswers({})
     try {
-      const res = await fetch('/api/quiz', {
+      const res = await apiFetch('/api/quiz', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url_or_video_id: videoId, language, num_questions: 4 }),
       })
       if (!res.ok) {

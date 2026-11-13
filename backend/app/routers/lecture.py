@@ -1,4 +1,10 @@
-from fastapi import APIRouter, HTTPException, status
+import json
+from datetime import datetime, timezone
+from fastapi import APIRouter, HTTPException, status, Depends
+from sqlalchemy.orm import Session
+from app.db import get_db
+from app.models import User, UserLecture, UserQuestion
+from app.auth import get_current_user
 from app.schemas.lecture import (
     TranscriptRequest,
     TranscriptResponse,
@@ -31,7 +37,11 @@ from app.services.llm import (
     generate_lecture_quiz,
 )
 
-router = APIRouter(prefix="/api", tags=["Lecture"])
+router = APIRouter(
+    prefix="/api",
+    tags=["Lecture"],
+    dependencies=[Depends(get_current_user)],
+)
 
 
 @router.post(
@@ -125,13 +135,44 @@ def chunk_transcript_endpoint(payload: ChunkRequest):
     summary="Process & Index YouTube video into Vector Database",
     description="Downloads transcript, groups into smart chunks, generates embeddings, and persists in ChromaDB.",
 )
-def process_video_endpoint(payload: ProcessVideoRequest):
+def process_video_endpoint(
+    payload: ProcessVideoRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     try:
         result = process_and_index_video(
             url_or_id=payload.url,
             target_words=payload.target_words,
             overlap_words=payload.overlap_words,
         )
+
+        # Track lecture in user's personalized watch history
+        try:
+            video_id = result.get("video_id")
+            if video_id:
+                user_lec = (
+                    db.query(UserLecture)
+                    .filter(UserLecture.user_id == current_user.id, UserLecture.video_id == video_id)
+                    .first()
+                )
+                if user_lec:
+                    user_lec.last_accessed_at = datetime.now(timezone.utc)
+                    if payload.url:
+                        user_lec.video_url = payload.url
+                else:
+                    user_lec = UserLecture(
+                        user_id=current_user.id,
+                        video_id=video_id,
+                        video_url=payload.url,
+                        title=f"Lecture ({video_id})",
+                    )
+                    db.add(user_lec)
+                db.commit()
+        except Exception as track_err:
+            db.rollback()
+            print(f"[Warning] Failed to track user lecture: {track_err}")
+
         return ProcessVideoResponse(**result)
     except ValueError as e:
         raise HTTPException(
@@ -197,7 +238,11 @@ def search_lecture_endpoint(payload: SearchLectureRequest):
     summary="Ask a doubt about the lecture (RAG Q&A with timestamp citations)",
     description="Retrieves the most relevant lecture chunks and uses Gemini to answer grounded strictly in the transcript with clickable citations.",
 )
-def chat_endpoint(payload: ChatRequest):
+def chat_endpoint(
+    payload: ChatRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     try:
         video_id = extract_video_id(payload.url_or_video_id)
     except ValueError as e:
@@ -216,6 +261,41 @@ def chat_endpoint(payload: ChatRequest):
 
         citations = [CitationItem(**c) for c in rag_result["citations"]]
         sources = [SearchResultItem(**s) for s in rag_result["sources"]]
+
+        # Persist question and answer in user's personalized revision history
+        try:
+            user_question = UserQuestion(
+                user_id=current_user.id,
+                video_id=video_id,
+                question=payload.question,
+                answer=rag_result["answer"],
+                citations_json=json.dumps([c.model_dump() for c in citations]),
+                playback_time=payload.current_time,
+                language=payload.language,
+            )
+            db.add(user_question)
+
+            # Ensure lecture exists in UserLecture and update last_accessed_at
+            user_lec = (
+                db.query(UserLecture)
+                .filter(UserLecture.user_id == current_user.id, UserLecture.video_id == video_id)
+                .first()
+            )
+            if user_lec:
+                user_lec.last_accessed_at = datetime.now(timezone.utc)
+            else:
+                user_lec = UserLecture(
+                    user_id=current_user.id,
+                    video_id=video_id,
+                    video_url=f"https://www.youtube.com/watch?v={video_id}",
+                    title=f"Lecture ({video_id})",
+                )
+                db.add(user_lec)
+
+            db.commit()
+        except Exception as q_err:
+            db.rollback()
+            print(f"[Warning] Failed to track user question: {q_err}")
 
         return ChatResponse(
             video_id=video_id,
