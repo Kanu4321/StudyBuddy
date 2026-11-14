@@ -1,25 +1,89 @@
 import os
 from typing import List, Dict, Any, Optional
+
 import chromadb
 from google import genai
 from dotenv import load_dotenv
+
 from app.services.chunker import chunk_transcript
 from app.services.transcript import fetch_transcript, extract_video_id
 
 # Load environment variables
 load_dotenv()
 
-# Persistent ChromaDB storage path
-CHROMA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "data", "chroma")
-os.makedirs(CHROMA_DIR, exist_ok=True)
+# ---------------------------------------------------------------------------
+# ChromaDB setup
+#
+# Priority:
+#   1. Chroma Cloud  (set CHROMA_API_KEY, CHROMA_TENANT, CHROMA_DATABASE)
+#      -> data persists, works on Vercel.
+#   2. Vercel without Chroma Cloud -> /tmp/chroma (only writable folder on
+#      Vercel; data is temporary and may vanish on cold starts).
+#   3. Local development -> backend/data/chroma (persistent on disk).
+#
+# The client is created lazily (on first use) so that importing this module
+# can never crash the whole server at startup.
+# ---------------------------------------------------------------------------
+_chroma_client: Optional[Any] = None
 
-# Initialize ChromaDB Persistent Client
-_chroma_client = chromadb.PersistentClient(path=CHROMA_DIR)
 
-# Initialize Google GenAI client
+def _local_chroma_dir() -> str:
+    if os.getenv("VERCEL"):
+        return "/tmp/chroma"
+    return os.path.join(
+        os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+        "data",
+        "chroma",
+    )
+
+
+def get_chroma_client():
+    """Returns or lazily initializes the ChromaDB client."""
+    global _chroma_client
+    if _chroma_client is not None:
+        return _chroma_client
+
+    api_key = os.getenv("CHROMA_API_KEY")
+    tenant = os.getenv("CHROMA_TENANT")
+    database = os.getenv("CHROMA_DATABASE")
+
+    if api_key and tenant and database:
+        _chroma_client = chromadb.CloudClient(
+            tenant=tenant,
+            database=database,
+            api_key=api_key,
+        )
+    else:
+        chroma_dir = _local_chroma_dir()
+        os.makedirs(chroma_dir, exist_ok=True)
+        _chroma_client = chromadb.PersistentClient(path=chroma_dir)
+
+    return _chroma_client
+
+
+def _get_or_create_collection(name: str):
+    """Creates a cosine-distance collection, compatible with old and new Chroma."""
+    client = get_chroma_client()
+    try:
+        # Newer Chroma versions
+        return client.get_or_create_collection(
+            name=name,
+            configuration={"hnsw": {"space": "cosine"}},
+        )
+    except Exception:
+        # Older versions
+        return client.get_or_create_collection(
+            name=name,
+            metadata={"hnsw:space": "cosine"},
+        )
+
+
+# ---------------------------------------------------------------------------
+# Google GenAI setup
+# ---------------------------------------------------------------------------
 _genai_client: Optional[genai.Client] = None
 
-# We use gemini-embedding-001 (dimension: 3072, high accuracy, multilingual)
+# gemini-embedding-001 (dimension: 3072, high accuracy, multilingual)
 EMBEDDING_MODEL = "gemini-embedding-001"
 
 
@@ -31,7 +95,7 @@ def get_genai_client() -> genai.Client:
         if not api_key:
             raise RuntimeError(
                 "GEMINI_API_KEY environment variable is not set. "
-                "Please configure it in backend/.env"
+                "Please configure it in backend/.env or in Vercel settings."
             )
         _genai_client = genai.Client(api_key=api_key)
     return _genai_client
@@ -39,15 +103,18 @@ def get_genai_client() -> genai.Client:
 
 def get_collection_name(video_id: str) -> str:
     """Returns a sanitized collection name for a given YouTube video."""
-    # ChromaDB collection names must be 3-63 chars, alphanumeric or underscores/hyphens
+    # Chroma collection names must be 3-63 chars, alphanumeric/underscore/hyphen
     sanitized = video_id.replace("-", "_")
     return f"lecture_{sanitized}"
 
 
+# ---------------------------------------------------------------------------
+# Embeddings
+# ---------------------------------------------------------------------------
 def embed_texts(texts: List[str]) -> List[List[float]]:
     """
     Computes vector embeddings for a list of text snippets using Gemini.
-    Uses task_type='RETRIEVAL_DOCUMENT' for optimal document-side asymmetric retrieval.
+    Uses task_type='RETRIEVAL_DOCUMENT' for document-side retrieval.
     """
     client = get_genai_client()
     embeddings: List[List[float]] = []
@@ -70,7 +137,7 @@ def embed_texts(texts: List[str]) -> List[List[float]]:
 def embed_query(query: str) -> List[float]:
     """
     Generates embedding for a single user query.
-    Uses task_type='RETRIEVAL_QUERY' for query-side asymmetric retrieval.
+    Uses task_type='RETRIEVAL_QUERY' for query-side retrieval.
     """
     client = get_genai_client()
     response = client.models.embed_content(
@@ -81,19 +148,18 @@ def embed_query(query: str) -> List[float]:
     return response.embeddings[0].values
 
 
+# ---------------------------------------------------------------------------
+# Indexing
+# ---------------------------------------------------------------------------
 def index_lecture_chunks(video_id: str, chunks: List[Dict[str, Any]]) -> Dict[str, Any]:
     """
-    Indexes lecture chunks into a persistent ChromaDB collection.
-    If the collection already exists and has chunks, it skips re-embedding
-    to save API tokens and time.
+    Indexes lecture chunks into a ChromaDB collection.
+    If the collection already has chunks, re-embedding is skipped to save
+    API tokens and time.
     """
     collection_name = get_collection_name(video_id)
-    collection = _chroma_client.get_or_create_collection(
-        name=collection_name,
-        metadata={"hnsw:space": "cosine"},  # Cosine distance for semantic similarity
-    )
+    collection = _get_or_create_collection(collection_name)
 
-    # Check if already indexed
     existing_count = collection.count()
     if existing_count > 0:
         return {
@@ -103,7 +169,6 @@ def index_lecture_chunks(video_id: str, chunks: List[Dict[str, Any]]) -> Dict[st
             "message": f"Lecture '{video_id}' is already indexed with {existing_count} chunks.",
         }
 
-    # Prepare data for ChromaDB
     ids = [f"{video_id}_{c['chunk_id']}" for c in chunks]
     documents = [c["text"] for c in chunks]
     metadatas = [
@@ -119,16 +184,17 @@ def index_lecture_chunks(video_id: str, chunks: List[Dict[str, Any]]) -> Dict[st
         for c in chunks
     ]
 
-    # Generate embeddings via Gemini
     embeddings = embed_texts(documents)
 
-    # Insert into ChromaDB
-    collection.add(
-        ids=ids,
-        embeddings=embeddings,
-        documents=documents,
-        metadatas=metadatas,
-    )
+    # Insert in batches (Chroma Cloud limits how many records one call can add)
+    batch_size = 100
+    for i in range(0, len(ids), batch_size):
+        collection.add(
+            ids=ids[i : i + batch_size],
+            embeddings=embeddings[i : i + batch_size],
+            documents=documents[i : i + batch_size],
+            metadatas=metadatas[i : i + batch_size],
+        )
 
     return {
         "status": "indexed",
@@ -138,55 +204,72 @@ def index_lecture_chunks(video_id: str, chunks: List[Dict[str, Any]]) -> Dict[st
     }
 
 
+# ---------------------------------------------------------------------------
+# Search
+# ---------------------------------------------------------------------------
 def search_lecture_chunks(
     video_id: str,
     query: str,
     top_k: int = 3,
 ) -> List[Dict[str, Any]]:
     """
-    Searches the lecture's ChromaDB collection for the top_k most relevant chunks
+    Searches the lecture's collection for the top_k most relevant chunks
     to the student's question.
     """
     collection_name = get_collection_name(video_id)
     try:
-        collection = _chroma_client.get_collection(name=collection_name)
+        collection = get_chroma_client().get_collection(name=collection_name)
     except Exception:
         raise RuntimeError(
-            f"Lecture '{video_id}' has not been indexed yet. Please process/index the video first."
+            f"Lecture '{video_id}' has not been indexed yet. "
+            "Please process/index the video first."
         )
 
-    # Generate embedding for the search question
+    total = collection.count()
+    if total == 0:
+        raise RuntimeError(
+            f"Lecture '{video_id}' has not been indexed yet. "
+            "Please process/index the video first."
+        )
+
     query_vector = embed_query(query)
 
-    # Query ChromaDB
     results = collection.query(
         query_embeddings=[query_vector],
-        n_results=min(top_k, collection.count()),
+        n_results=min(top_k, total),
     )
 
-    search_items = []
-    if results and results["documents"]:
+    search_items: List[Dict[str, Any]] = []
+    if results and results.get("documents"):
         docs = results["documents"][0]
         metas = results["metadatas"][0]
-        distances = results["distances"][0] if "distances" in results and results["distances"] else [0.0] * len(docs)
+        distances = (
+            results["distances"][0]
+            if results.get("distances")
+            else [0.0] * len(docs)
+        )
 
         for doc, meta, dist in zip(docs, metas, distances):
             # In cosine space, similarity = 1 - cosine_distance
             similarity = round(max(0.0, 1.0 - float(dist)), 4)
-            search_items.append({
-                "chunk_id": meta.get("chunk_id"),
-                "text": doc,
-                "start": meta.get("start"),
-                "end": meta.get("end"),
-                "start_formatted": meta.get("start_formatted"),
-                "end_formatted": meta.get("end_formatted"),
-                "similarity_score": similarity,
-            })
+            search_items.append(
+                {
+                    "chunk_id": meta.get("chunk_id"),
+                    "text": doc,
+                    "start": meta.get("start"),
+                    "end": meta.get("end"),
+                    "start_formatted": meta.get("start_formatted"),
+                    "end_formatted": meta.get("end_formatted"),
+                    "similarity_score": similarity,
+                }
+            )
 
-    # Sort results chronologically by start time so the lecture flow makes sense
     return search_items
 
 
+# ---------------------------------------------------------------------------
+# Full ingestion pipeline
+# ---------------------------------------------------------------------------
 def process_and_index_video(
     url_or_id: str,
     target_words: int = 180,
@@ -202,9 +285,9 @@ def process_and_index_video(
     video_id = extract_video_id(url_or_id)
     collection_name = get_collection_name(video_id)
 
-    # Check if already indexed in ChromaDB to avoid unnecessary YouTube requests
+    # Skip YouTube + embedding work if this lecture is already indexed
     try:
-        collection = _chroma_client.get_collection(name=collection_name)
+        collection = get_chroma_client().get_collection(name=collection_name)
         existing_count = collection.count()
         if existing_count > 0:
             return {
