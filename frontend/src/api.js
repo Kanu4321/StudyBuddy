@@ -26,6 +26,23 @@ export function removeToken() {
 }
 
 /**
+ * Safely parse JSON from a fetch Response without throwing
+ * "Unexpected end of JSON input" on empty responses, HTML error pages, or proxy dropouts.
+ */
+export async function parseResponseJson(response) {
+  if (!response) return {}
+  try {
+    const text = await response.text()
+    if (!text || !text.trim()) {
+      return {}
+    }
+    return JSON.parse(text)
+  } catch (err) {
+    return { detail: 'Unexpected response format from server.' }
+  }
+}
+
+/**
  * Central fetch wrapper:
  * - Uses relative URLs (proxied by Vite to http://127.0.0.1:8000)
  * - Injects 'Authorization: Bearer <token>' header automatically
@@ -68,9 +85,9 @@ export const authApi = {
       method: 'POST',
       body: JSON.stringify({ email, password }),
     })
-    const data = await res.json()
+    const data = await parseResponseJson(res)
     if (!res.ok) {
-      throw new Error(data.detail || 'Signup failed')
+      throw new Error(data.detail || `Signup failed (HTTP ${res.status})`)
     }
     setToken(data.access_token)
     return data
@@ -81,9 +98,9 @@ export const authApi = {
       method: 'POST',
       body: JSON.stringify({ email, password }),
     })
-    const data = await res.json()
+    const data = await parseResponseJson(res)
     if (!res.ok) {
-      throw new Error(data.detail || 'Login failed')
+      throw new Error(data.detail || `Login failed (HTTP ${res.status})`)
     }
     setToken(data.access_token)
     return data
@@ -93,9 +110,9 @@ export const authApi = {
     const res = await apiFetch('/api/auth/guest', {
       method: 'POST',
     })
-    const data = await res.json()
+    const data = await parseResponseJson(res)
     if (!res.ok) {
-      throw new Error(data.detail || 'Guest login failed')
+      throw new Error(data.detail || `Guest session creation failed (HTTP ${res.status})`)
     }
     setToken(data.access_token)
     return data
@@ -106,7 +123,7 @@ export const authApi = {
     if (!res.ok) {
       throw new Error('Not authenticated')
     }
-    return await res.json()
+    return await parseResponseJson(res)
   },
 
   logout() {

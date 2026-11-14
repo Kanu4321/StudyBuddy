@@ -16,6 +16,10 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
+# Remove pgbouncer query parameter which psycopg/libpq rejects as an invalid connection option
+if DATABASE_URL and "pgbouncer=true" in DATABASE_URL:
+    DATABASE_URL = DATABASE_URL.replace("?pgbouncer=true", "").replace("&pgbouncer=true", "")
+
 # Fall back to SQLite only when no real database URL is configured
 if not DATABASE_URL or DATABASE_URL == "sqlite:///./data/studybuddy.db":
     # Vercel's filesystem is read-only except /tmp (and /tmp data is temporary)

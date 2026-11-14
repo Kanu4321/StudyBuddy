@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Brain, Clock, Sparkles, CheckCircle2, XCircle, RefreshCw } from 'lucide-react'
-import { apiFetch } from '../api'
+import { apiFetch, parseResponseJson } from '../api'
 
 export default function QuizPanel({ videoId, language, onSeek }) {
   const [questions, setQuestions] = useState(null)
@@ -18,11 +18,10 @@ export default function QuizPanel({ videoId, language, onSeek }) {
         method: 'POST',
         body: JSON.stringify({ url_or_video_id: videoId, language, num_questions: 4 }),
       })
+      const data = await parseResponseJson(res)
       if (!res.ok) {
-        const err = await res.json().catch(() => ({}))
-        throw new Error(err.detail || 'Failed to generate quiz.')
+        throw new Error(data.detail || 'Failed to generate quiz.')
       }
-      const data = await res.json()
       setQuestions(data.questions)
     } catch (e) {
       setError(e.message)

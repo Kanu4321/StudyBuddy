@@ -19,7 +19,7 @@ import NotesPanel from './components/NotesPanel'
 import QuizPanel from './components/QuizPanel'
 import Dashboard from './components/Dashboard'
 import AuthScreen from './components/AuthScreen'
-import { apiFetch, authApi, setUnauthorizedCallback } from './api'
+import { apiFetch, authApi, parseResponseJson, setUnauthorizedCallback } from './api'
 
 const DEFAULT_VIDEO_URL = 'https://youtu.be/HpsjPUwQHfw'
 
@@ -100,12 +100,11 @@ export default function App() {
         body: JSON.stringify({ url: targetUrl.trim() }),
       })
 
+      const data = await parseResponseJson(response)
       if (!response.ok) {
-        const errData = await response.json().catch(() => ({}))
-        throw new Error(errData.detail || 'Failed to process lecture video.')
+        throw new Error(data.detail || 'Failed to process lecture video.')
       }
 
-      const data = await response.json()
       setActiveVideoId(data.video_id)
       setIndexStatus({
         status: data.status,
@@ -158,12 +157,10 @@ export default function App() {
         }),
       })
 
+      const data = await parseResponseJson(response)
       if (!response.ok) {
-        const errData = await response.json().catch(() => ({}))
-        throw new Error(errData.detail || 'Failed to get answer from AI.')
+        throw new Error(data.detail || 'Failed to get answer from AI.')
       }
-
-      const data = await response.json()
 
       setMessages((prev) => [
         ...prev,

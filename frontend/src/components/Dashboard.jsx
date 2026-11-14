@@ -11,7 +11,7 @@ import {
   Video,
   HelpCircle,
 } from 'lucide-react'
-import { apiFetch } from '../api'
+import { apiFetch, parseResponseJson } from '../api'
 
 function formatDate(isoStr) {
   if (!isoStr) return ''
@@ -46,11 +46,10 @@ export default function Dashboard({ onResumeLecture, onSeekToQuestion, onBackToS
     setError('')
     try {
       const res = await apiFetch('/api/dashboard')
+      const data = await parseResponseJson(res)
       if (!res.ok) {
-        const errData = await res.json().catch(() => ({}))
-        throw new Error(errData.detail || 'Failed to load dashboard data.')
+        throw new Error(data.detail || 'Failed to load dashboard data.')
       }
-      const data = await res.json()
       setSummary(data)
     } catch (err) {
       setError(err.message)

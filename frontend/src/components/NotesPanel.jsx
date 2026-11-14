@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { BookOpen, Clock, Sparkles, RefreshCw } from 'lucide-react'
-import { apiFetch } from '../api'
+import { apiFetch, parseResponseJson } from '../api'
 
 export default function NotesPanel({ videoId, language, onSeek }) {
   const [notes, setNotes] = useState(null)
@@ -16,11 +16,10 @@ export default function NotesPanel({ videoId, language, onSeek }) {
         method: 'POST',
         body: JSON.stringify({ url_or_video_id: videoId, language }),
       })
+      const data = await parseResponseJson(res)
       if (!res.ok) {
-        const err = await res.json().catch(() => ({}))
-        throw new Error(err.detail || 'Failed to generate notes.')
+        throw new Error(data.detail || 'Failed to generate notes.')
       }
-      const data = await res.json()
       setNotes(data.topics)
     } catch (e) {
       setError(e.message)
